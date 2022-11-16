@@ -2,35 +2,28 @@ package alia_fission_utils
 
 import (
 	"context"
-	"os"
-	"strconv"
-	"net/http"
 	"go.opentelemetry.io/otel"
-	"go.uber.org/zap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
-	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"net/http"
+	"os"
+	"strconv"
 )
 
 type Tracing struct {
 	Tracer *trace.Tracer
 	Logger *zap.Logger
-	Ctx context.Context
+	Ctx    context.Context
 }
-
-const (
-	OtelEnvPrefix      = "OTEL_"
-	OtelEndpointEnvVar = "OTEL_EXPORTER_OTLP_ENDPOINT"
-	OtelInsecureEnvVar = "OTEL_EXPORTER_OTLP_INSECURE"
-	OtelPropagaters    = "OTEL_PROPAGATORS"
-)
 
 type OtelConfig struct {
 	endpoint string
@@ -39,8 +32,8 @@ type OtelConfig struct {
 
 func parseOtelConfig() OtelConfig {
 	config := OtelConfig{}
-	config.endpoint = os.Getenv(OtelEndpointEnvVar)
-	insecure, err := strconv.ParseBool(os.Getenv(OtelInsecureEnvVar))
+	config.endpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	insecure, err := strconv.ParseBool(os.Getenv("OTEL_EXPORTER_OTLP_INSECURE"))
 	if err != nil {
 		insecure = true
 	}
@@ -83,8 +76,8 @@ func getTraceExporter(ctx context.Context, logger *zap.Logger) (*otlptrace.Expor
 	return exporter, nil
 }
 
-func NewTracing(r *http.Request) *Tracing {
-	
+func NewTracing(r *http.Request, serviceName string, attributes ...attribute.KeyValue) *Tracing {
+
 	//traceparent := r.Header.Get("Traceparent")
 	tracer := otel.Tracer("router")
 	logger, _ := zap.NewProduction()
@@ -98,23 +91,15 @@ func NewTracing(r *http.Request) *Tracing {
 	logger = LoggerWithTraceID(ctx, logger)
 
 	logger.Info("Try to intialize tracing")
-	/*
-		    _, err := otelUtils.InitProvider(ctx, Logger, "Fission-Function")
-			if err != nil {
-				Logger.Fatal("error initializing provider for OTLP", zap.Error(err))
-			}
-	*/
 
 	tracerProvider := sdktrace.NewTracerProvider(
 		sdktrace.WithResource(resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceNameKey.String("inside_function"),
-			attribute.String("environment", "dev"),
-			attribute.Int64("ID", 5869),
+			semconv.ServiceNameKey.String(serviceName),
+			attributes,
 		)),
 	)
 	otel.SetTracerProvider(tracerProvider)
-	//otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
 
 	traceExporter, err := getTraceExporter(ctx, logger)
 	if err != nil {
@@ -128,7 +113,7 @@ func NewTracing(r *http.Request) *Tracing {
 	t := &Tracing{
 		Tracer: &tracer,
 		Logger: logger,
-		Ctx:	ctx,
+		Ctx:    ctx,
 	}
 	return t
 }
