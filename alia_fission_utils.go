@@ -93,11 +93,11 @@ func NewTracing(r *http.Request, serviceName string, attributes ...attribute.Key
 	logger.Info("Try to intialize tracing")
 
 	tracerProvider := sdktrace.NewTracerProvider(
-		sdktrace.WithResource(resource.NewWithAttributes(
+		sdktrace.WithResource(resource.NewWithAttributes(append(
 			semconv.SchemaURL,
 			semconv.ServiceNameKey.String(serviceName),
 			attributes,
-		)),
+		))),
 	)
 	otel.SetTracerProvider(tracerProvider)
 
