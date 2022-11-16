@@ -54,7 +54,7 @@ func getTraceExporter(ctx context.Context, logger *zap.Logger) (*otlptrace.Expor
 	otelConfig := parseOtelConfig()
 	if otelConfig.endpoint == "" {
 		if logger != nil {
-			logger.Info("OTEL_EXPORTER_OTLP_ENDPOINT not set, skipping Opentelemtry tracing")
+			logger.Info("OTEL_EXPORTER_OTLP_ENDPOINT not set, skipping Opentelemtry tracing!")
 		}
 		return nil, nil
 	}
