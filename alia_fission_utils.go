@@ -2,6 +2,8 @@ package alia_fission_utils
 
 import (
 	"context"
+	"fmt"
+	nats "github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
@@ -20,9 +22,10 @@ import (
 )
 
 type Tracing struct {
-	Tracer *trace.Tracer
-	Logger *zap.Logger
-	Ctx    context.Context
+	Tracer      *trace.Tracer
+	Logger      *zap.Logger
+	Ctx         context.Context
+	Traceparent string
 }
 
 type OtelConfig struct {
@@ -114,9 +117,102 @@ func NewTracing(r *http.Request, serviceName string, attributes ...attribute.Key
 		tracerProvider.RegisterSpanProcessor(bsp)
 	}
 	t := &Tracing{
-		Tracer: &tracer,
-		Logger: logger,
-		Ctx:    ctx,
+		Tracer:      &tracer,
+		Logger:      logger,
+		Ctx:         ctx,
+		Traceparent: r.Header.Get("Traceparent"),
 	}
 	return t
+}
+
+const (
+	streamName     = "input"
+	streamSubjects = "input.*"
+	//subjectName           = "input.created"
+	responseStreamName    = "output"
+	responseStreamSubject = "output.response-topic"
+	errorStreamName       = "erroutput"
+	errorstreamSubjects   = "erroutput.error-topic"
+)
+
+type MessageQueue struct {
+	js nats.JetStreamContext
+	Tr *Tracing
+}
+
+func NewMQ(tr *Tracing) (*MessageQueue, error) {
+
+	host := "nats://nats-jetstream.default.svc.cluster.local:4222"
+
+	nc, err := nats.Connect(host)
+	if err != nil {
+		tr.Logger.Error(fmt.Sprintf("error connecting to host:  %v", err.Error()))
+		return nil, err
+	}
+	// Creates JetStreamContext
+	js, err := nc.JetStream()
+	if err != nil {
+		tr.Logger.Error(fmt.Sprintf("error getting context:  %v", err.Error()))
+		return nil, err
+	}
+
+	mq := &MessageQueue{
+		js: js,
+		Tr: tr,
+	}
+
+	// Creates stream
+	err = mq.createStream(streamName, streamSubjects)
+	if err != nil {
+		tr.Logger.Error(fmt.Sprintf("error create stream:  %v", err.Error()))
+		return nil, err
+	}
+
+	// Creates stream
+	err = mq.createStream(responseStreamName, responseStreamSubject)
+	if err != nil {
+		tr.Logger.Error(fmt.Sprintf("error create stream:  %v", err.Error()))
+		return nil, err
+	}
+
+	// create output & err stream
+	err = mq.createStream(errorStreamName, errorstreamSubjects)
+	if err != nil {
+		tr.Logger.Error(fmt.Sprintf("error create stream:  %v", err.Error()))
+		return nil, err
+	}
+	return mq, nil
+}
+
+// createStream creates a stream by using JetStreamContext
+func (mq *MessageQueue) createStream(streamName string, streamSubjects string) error {
+	stream, err := mq.js.StreamInfo(streamName)
+	if err != nil {
+		mq.Tr.Logger.Error(fmt.Sprintf("error StreamInfo:  %v", err.Error()))
+		err = nil
+	}
+	if stream == nil {
+		mq.Tr.Logger.Info(fmt.Sprintf("creating stream %q and subjects %q", streamName, streamSubjects))
+		_, err = mq.js.AddStream(&nats.StreamConfig{
+			Name:     streamName,
+			Subjects: []string{streamSubjects},
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (mq *MessageQueue) Publish(subjectName string, data []byte) error {
+	msg := nats.NewMsg(subjectName)
+	msg.Data = data
+	//msg.Header.Set("data", "true")
+	msg.Header.Set("Traceparent", mq.Tr.Traceparent)
+	_, err := mq.js.PublishMsg(msg)
+	if err != nil {
+		mq.Tr.Logger.Error(fmt.Sprintf("Error Publish: ", err))
+		return err
+	}
+	return nil
 }
