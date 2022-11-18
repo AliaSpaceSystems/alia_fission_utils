@@ -204,11 +204,16 @@ func (mq *MessageQueue) createStream(streamName string, streamSubjects string) e
 	return nil
 }
 
-func (mq *MessageQueue) Publish(subjectName string, data []byte) error {
+func (mq *MessageQueue) Publish(subjectName string, data []byte, headers ...map[string]string) error {
 	msg := nats.NewMsg(subjectName)
 	msg.Data = data
 	//msg.Header.Set("data", "true")
 	msg.Header.Set("Traceparent", mq.Tr.Traceparent)
+	for _, header := range headers {
+		for key, value := range header {
+			msg.Header.Set(key, value)
+		}
+	}
 	_, err := mq.js.PublishMsg(msg)
 	if err != nil {
 		mq.Tr.Logger.Error(fmt.Sprintf("Error Publish: ", err))
