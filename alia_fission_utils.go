@@ -209,8 +209,10 @@ func (mq *MessageQueue) Publish(subjectName string, data []byte, headers ...map[
 	msg.Data = data
 	//msg.Header.Set("data", "true")
 	msg.Header.Set("Traceparent", mq.Tr.Traceparent)
+	msg.Header.Set("Fn_test", "test")
 	for _, header := range headers {
 		for key, value := range header {
+			mq.Tr.Logger.Error(fmt.Sprintf("Add Header ->  %q : %q", key, value))
 			msg.Header.Set(key, value)
 		}
 	}
